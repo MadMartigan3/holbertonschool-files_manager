@@ -1,13 +1,15 @@
 import { v4 as uuidv4 } from 'uuid';
-import { mkdir, writeFile } from 'fs';
+import { mkdir, writeFile, readFile } from 'fs';
 import { promisify } from 'util';
 import path from 'path';
+import mime from 'mime-types';
 import pkg from 'mongodb';
 import redisClient from '../utils/redis';
 import dbClient from '../utils/db';
 
 const mkdirAsync = promisify(mkdir);
 const writeFileAsync = promisify(writeFile);
+const readFileAsync = promisify(readFile);
 const { ObjectID } = pkg;
 
 const ACCEPTED_TYPES = ['folder', 'file', 'image'];
@@ -193,6 +195,37 @@ class FilesController {
       isPublic: false,
       parentId: file.parentId,
     });
+  }
+
+  static async getFile(req, res) {
+    const token = req.headers['x-token'];
+
+    const filesCollection = await dbClient.collection('files');
+    const file = await filesCollection.findOne({ _id: new ObjectID(req.params.id) });
+
+    if (!file) return res.status(404).json({ error: 'Not found' });
+
+    if (!file.isPublic) {
+      if (!token) return res.status(404).json({ error: 'Not found' });
+
+      const userId = await redisClient.get(`auth_${token}`);
+      if (!userId) return res.status(404).json({ error: 'Not found' });
+
+      if (file.userId.toString() !== userId) return res.status(404).json({ error: 'Not found' });
+    }
+
+    if (file.type === 'folder') return res.status(400).json({ error: "A folder doesn't have content" });
+
+    if (!file.localPath) return res.status(404).json({ error: 'Not found' });
+
+    try {
+      const fileContent = await readFileAsync(file.localPath);
+      const mimeType = mime.lookup(file.name) || 'application/octet-stream';
+      res.setHeader('Content-Type', mimeType);
+      return res.status(200).send(fileContent);
+    } catch (err) {
+      return res.status(404).json({ error: 'Not found' });
+    }
   }
 }
 
