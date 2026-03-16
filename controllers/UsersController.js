@@ -8,11 +8,13 @@ class UsersController {
     if (!email) return res.status(400).json({ error: 'Missing email' });
     if (!password) return res.status(400).json({ error: 'Missing password' });
 
-    const existingUser = await dbClient.db.collection('users').findOne({ email });
+    const usersCollection = await dbClient.collection('users');
+
+    const existingUser = await usersCollection.findOne({ email });
     if (existingUser) return res.status(400).json({ error: 'Already exist' });
 
     const hashedPassword = sha1(password);
-    const result = await dbClient.db.collection('users').insertOne({
+    const result = await usersCollection.insertOne({
       email,
       password: hashedPassword,
     });
