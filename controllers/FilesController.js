@@ -112,7 +112,14 @@ class FilesController {
     const userId = await redisClient.get(`auth_${token}`);
     if (!userId) return res.status(401).json({ error: 'Unauthorized' });
 
-    const parentId = req.query.parentId || 0;
+    const rawParentId = req.query.parentId;
+    let parentId;
+    if (!rawParentId || rawParentId === '0') {
+      parentId = 0;
+    } else {
+      parentId = rawParentId;
+    }
+
     const page = parseInt(req.query.page, 10) || 0;
 
     const filesCollection = await dbClient.collection('files');
