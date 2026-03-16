@@ -113,21 +113,15 @@ class FilesController {
     if (!userId) return res.status(401).json({ error: 'Unauthorized' });
 
     const rawParentId = req.query.parentId;
-    let parentId;
-    if (!rawParentId || rawParentId === '0') {
-      parentId = 0;
-    } else {
-      parentId = rawParentId;
-    }
-
+    const parentId = rawParentId && rawParentId !== '0' ? rawParentId : 0;
     const page = parseInt(req.query.page, 10) || 0;
 
     const filesCollection = await dbClient.collection('files');
-    const files = await filesCollection.aggregate([
-      { $match: { userId: new ObjectID(userId), parentId } },
-      { $skip: page * PAGE_SIZE },
-      { $limit: PAGE_SIZE },
-    ]).toArray();
+    const files = await filesCollection
+      .find({ userId: new ObjectID(userId), parentId })
+      .skip(page * PAGE_SIZE)
+      .limit(PAGE_SIZE)
+      .toArray();
 
     const result = files.map((file) => ({
       id: file._id,
