@@ -12,10 +12,10 @@ const { ObjectID } = pkg;
 
 const ACCEPTED_TYPES = ['folder', 'file', 'image'];
 const FOLDER_PATH = process.env.FOLDER_PATH || '/tmp/files_manager';
+const PAGE_SIZE = 20;
 
 class FilesController {
   static async postUpload(req, res) {
-    // Authenticate user
     const token = req.headers['x-token'];
     if (!token) return res.status(401).json({ error: 'Unauthorized' });
 
@@ -26,7 +26,6 @@ class FilesController {
     const user = await usersCollection.findOne({ _id: new ObjectID(userId) });
     if (!user) return res.status(401).json({ error: 'Unauthorized' });
 
-    // Validate input
     const {
       name, type, parentId = 0, isPublic = false, data,
     } = req.body;
@@ -35,7 +34,6 @@ class FilesController {
     if (!type || !ACCEPTED_TYPES.includes(type)) return res.status(400).json({ error: 'Missing type' });
     if (!data && type !== 'folder') return res.status(400).json({ error: 'Missing data' });
 
-    // Validate parentId
     const filesCollection = await dbClient.collection('files');
     if (parentId !== 0) {
       const parentFile = await filesCollection.findOne({ _id: new ObjectID(parentId) });
@@ -43,7 +41,6 @@ class FilesController {
       if (parentFile.type !== 'folder') return res.status(400).json({ error: 'Parent is not a folder' });
     }
 
-    // Build document
     const fileDoc = {
       userId: new ObjectID(userId),
       name,
@@ -52,7 +49,6 @@ class FilesController {
       parentId,
     };
 
-    // If folder, just save to DB
     if (type === 'folder') {
       const result = await filesCollection.insertOne(fileDoc);
       return res.status(201).json({
@@ -65,7 +61,6 @@ class FilesController {
       });
     }
 
-    // Otherwise, save file to disk
     await mkdirAsync(FOLDER_PATH, { recursive: true });
     const localPath = path.join(FOLDER_PATH, uuidv4());
     const fileBuffer = Buffer.from(data, 'base64');
@@ -83,6 +78,60 @@ class FilesController {
       parentId,
       localPath,
     });
+  }
+
+  static async getShow(req, res) {
+    const token = req.headers['x-token'];
+    if (!token) return res.status(401).json({ error: 'Unauthorized' });
+
+    const userId = await redisClient.get(`auth_${token}`);
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+
+    const filesCollection = await dbClient.collection('files');
+    const file = await filesCollection.findOne({
+      _id: new ObjectID(req.params.id),
+      userId: new ObjectID(userId),
+    });
+
+    if (!file) return res.status(404).json({ error: 'Not found' });
+
+    return res.status(200).json({
+      id: file._id,
+      userId: file.userId,
+      name: file.name,
+      type: file.type,
+      isPublic: file.isPublic,
+      parentId: file.parentId,
+    });
+  }
+
+  static async getIndex(req, res) {
+    const token = req.headers['x-token'];
+    if (!token) return res.status(401).json({ error: 'Unauthorized' });
+
+    const userId = await redisClient.get(`auth_${token}`);
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+
+    const parentId = req.query.parentId || 0;
+    const page = parseInt(req.query.page, 10) || 0;
+
+    const filesCollection = await dbClient.collection('files');
+    const files = await filesCollection.aggregate([
+      { $match: { userId: new ObjectID(userId), parentId } },
+      { $skip: page * PAGE_SIZE },
+      { $limit: PAGE_SIZE },
+    ]).toArray();
+
+    const result = files.map((file) => ({
+      id: file._id,
+      userId: file.userId,
+      name: file.name,
+      type: file.type,
+      isPublic: file.isPublic,
+      parentId: file.parentId,
+    }));
+
+    return res.status(200).json(result);
   }
 }
 
